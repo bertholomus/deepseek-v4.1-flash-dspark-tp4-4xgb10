@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## v1.1.2 — 2026-09-12 — TTFT decomposition and prefix-stability finding (tooling and docs only)
+
+- **`docs/TTFT-AND-CACHE.md`** — TTFT decomposed on the live lane: cached TTFT is flat (0.35 s @
+  126 tok → 0.52 s @ 39,346 tok), cold prefill runs **3.5–3.9k tok/s**, and the felt tail is the
+  uncached-token tail (p99 54,280 uncached ≙ ~15 s). Newly closed by measurement: no fp4 KV dtype
+  exists in this image (`fp8_e4m3` already the smallest), KV pool 7 % used, γ 3.42 of 4 accepted.
+  No formula change.
+- **Prefix stability finding** — identical 40k-token content, a value that changes between turns
+  placed at the top → **14.005 s** TTFT; at the end → **0.594 s**. Anything volatile placed early
+  re-prefills the whole tail through the radix cache every turn. Free to fix; worth ~20× felt TTFT.
+- **`tools/ttft-probe.py`, `tools/prefix-invalidation-probe.py`, `tools/metrics-quantiles.py`** —
+  the three read-only probes that produced the above (production endpoint, no engine change).
+
 ## v1.1.1 — 2026-09-12 — 4-node state guard (tooling and docs only)
 
 - **`tools/gpu-state-probe.py` + `docs/4-NODE-STATE.md`** — a per-node memory-bandwidth probe

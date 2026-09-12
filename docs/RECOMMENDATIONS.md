@@ -59,14 +59,39 @@ is not the bottleneck; the value would be latency smoothing at best.
 
 - **Raising the KV pool / `MEM_FRACTION_STATIC`** — context in flight peaks at 661k of the 4 M
   pool (median 300k). No pressure.
-- **Prefix cache work** — 96.4 % hit already.
+- **Prefix cache work** — 98.9 % hit already, so caching *volume* is not a lever. Prefix
+  *stability* is: see `docs/TTFT-AND-CACHE.md` (a volatile value placed early in a prompt costs
+  a full re-prefill — measured 14.0 s vs 0.59 s TTFT on identical content).
 - **Chasing single-stream to 69 tok/s by config** — the lane is latency-bound at ~12× above the
   bandwidth bound; γ was the lever and it is spent. Only a topology change (fewer all-reduce legs,
   i.e. TP3 — rejected by the owner) or a second replica changes that.
 - **Per-batch prefill latency "problem"** — an artifact of window-averaged logging (see
   FLEET-BASELINE §measure-like-an-adult). Nothing to fix.
 
-## 5. Strategic (owner decision, no engineering risk)
+## 5. Where the remaining gains are (measured 2026-09-12, `docs/TTFT-AND-CACHE.md`)
+
+Ranked after decomposing TTFT on the live lane. Items 1–2 are free (no engine change, no window,
+no config) and are prompt/client-side.
+
+1. **Context hygiene.** Live streams carry ~115k tokens of context (`#full token` 344,832 across
+   3 running requests); prompts p50 52.5k / p90 148k. Decode cost scales with live context and
+   prefill cost scales with new-tokens × context, so no engine setting can undo it. Shrinking the
+   working set (trim/summarise history) is the largest available multiplier on felt speed.
+2. **Prefix stability.** Prompts should be append-only with everything volatile last. Measured:
+   identical 40k content with a changing marker at the top → 14.005 s turn-2 TTFT; marker at the
+   end → 0.594 s. The radix cache matches only from the first differing byte, so an early
+   timestamp / session id / re-rendered system block re-prefills the whole tail every turn.
+3. **Engine-side prefill levers (need a window, untested here).** `--schedule-policy lpm`
+   (longest-prefix-match scheduling rather than FCFS) and prefill chunk sizing
+   (`chunked_prefill_size` 4096 / `max_prefill_tokens` 16384) for the p99 uncached case
+   (p99 uncached prompt 54,280 tok ≈ 15 s of cold prefill at the measured 3.5–3.9k tok/s).
+4. **Capacity** — see §6.
+
+Newly **closed** by measurement (do not retry): smaller KV dtype (no fp4 KV path exists in this
+image; `fp8_e4m3` is already the smallest), KV capacity (7 % used), γ (3.42 of 4 accepted), and
+text-path optimisation (a 39k-token cached prompt costs +0.17 s over a 126-token one).
+
+## 6. Strategic (owner decision, no engineering risk)
 
 - **Capacity, not tuning, is the next ceiling.** Per-stream speed when 8 agents run is 13.7 tok/s
   by arithmetic sharing — no single-engine tuning changes that. If the fleet keeps growing, the
