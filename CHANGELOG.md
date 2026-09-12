@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## v1.1.1 — 2026-09-12 — 4-node state guard (tooling and docs only)
+
+- **`tools/gpu-state-probe.py` + `docs/4-NODE-STATE.md`** — a per-node memory-bandwidth probe
+  that detects the hidden GB10 slow state (a reported-but-invisible failure mode where decode
+  bandwidth drops ~3.3× while `nvidia-smi` clock, throttle reasons and device copies all look
+  normal). This is the one degradation unique to a 4-node recipe: TP4 runs in lockstep, so a
+  single slow Spark slows the whole fleet, and no config change can fix it. Measured 2026-09-12
+  on all four nodes under live load: all fast (p50 ≈ 247 GB/s). Method credited to
+  `tonyd2wild/DeepSeek-V4.1-Flash-vLLM-DGX-Spark` issue #1 (MIT); the implementation is ours.
+  No formula change.
+
 ## v1.1.0 — 2026-09-12 — codename *gamma-3* + durable fixes (first public release)
 
 Formula unchanged from v1.0.0 (γ-3). This release adds three durability fixes and the first

@@ -30,7 +30,12 @@ network service, you must offer the corresponding source to your users.
 - **Model** — DeepSeek-V4.1-Flash, checkpoint `dba1be0a`; MIT (the licence ships inside the
   checkpoint). Not redistributed here.
 - **Hardware / fabric** — NVIDIA DGX Spark (GB10) and ConnectX-7; NCCL is used from the
-  container image.
+  container image (2.28.3 as shipped — the `nccl-2.30.7` overlay some recipes document is
+  **not** vendored here and is not used).
+- **GB10 slow-state measurement** — the fast/slow memory-bandwidth diagnostic in
+  `docs/4-NODE-STATE.md` and `tools/gpu-state-probe.py` follows the finding published by
+  `tonyd2wild/DeepSeek-V4.1-Flash-vLLM-DGX-Spark` (MIT, issue #1); the implementation here is
+  independent, and no code from that project is copied.
 
 ## What is ours (BertholomusAI)
 

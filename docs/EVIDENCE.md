@@ -3,6 +3,9 @@
 Rule: **measured** means a live tool output on A1–A4; **configured** means a value read from
 the running engine; **estimated** is labelled as such. If a number is not here, don't quote it.
 
+Per-node hardware state (the hidden GB10 slow state, with the 2026-09-12 A1–A4 measurement) is
+in `4-NODE-STATE.md`.
+
 ## Harnesses (spark2, `~/`)
 
 | Harness | What it does |

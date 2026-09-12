@@ -23,6 +23,11 @@ Every claim here is tied to a measurement in `FLEET-BASELINE.md` or `EVIDENCE.md
   warm; the heartbeat only has a role in genuinely idle windows.
 - **`FLEET-BASELINE.md`** — the real, measured felt-speed curve, so future sessions stop
   re-deriving what "good" looks like.
+- **`gpu-state-probe.py` + `4-NODE-STATE.md`** — catches the one failure mode unique to a 4-node
+  recipe: a single Spark in the hidden GB10 slow state (memory bandwidth 3.3× down, invisible to
+  `nvidia-smi`), which TP4 lockstep turns into a fleet-wide slowdown. All four nodes measured
+  fast (≈247 GB/s p50) on 2026-09-12. Run the probe before believing any slowdown is a tuning
+  problem.
 
 ## 1. Cheap experiment: mixed chunked prefill (needs a window ~20 min) — highest untested value
 
