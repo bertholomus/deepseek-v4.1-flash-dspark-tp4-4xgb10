@@ -1,0 +1,7 @@
+*.raw
+__pycache__/
+*.pyc
+*.log
+*.latch
+state/
+*.bak-*

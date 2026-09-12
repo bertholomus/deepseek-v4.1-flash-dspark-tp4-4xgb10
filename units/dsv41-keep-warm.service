@@ -1,0 +1,13 @@
+[Unit]
+Description=Keep A1-A4 dsv41 TP4 lane warm (idle heartbeat burst)
+
+[Service]
+Type=oneshot
+# warm-lane burst can take ~90-420s; default 90s oneshot timeout would kill it
+TimeoutStartSec=480
+Nice=10
+Environment=KEEP_IDLE_S=600
+Environment=KEEP_BUDGET_S=90
+ExecStart=/usr/bin/python3 %h/ai/runtime/deepseek-v41-flash-a1a4-sglang/keep-warm.py
+StandardOutput=append:%h/ai/runtime/deepseek-v41-flash-a1a4-sglang/keep-warm.log
+StandardError=append:%h/ai/runtime/deepseek-v41-flash-a1a4-sglang/keep-warm.log

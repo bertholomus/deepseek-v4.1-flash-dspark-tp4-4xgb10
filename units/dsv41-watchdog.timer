@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic health check for DeepSeek V4.1 Flash A1-A4 TP4 (SGLang)
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=2min
+OnCalendar=*:0/2
+AccuracySec=15s
+Persistent=false
+Unit=deepseek-v41-flash-a1a4-sglang-tp4-watchdog.service
+
+[Install]
+WantedBy=timers.target

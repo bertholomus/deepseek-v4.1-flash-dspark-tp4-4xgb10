@@ -1,0 +1,21 @@
+[Unit]
+Description=DeepSeek V4.1 Flash TP4 controller on A1-A4 (SGLang, :8000)
+After=network-online.target docker.service
+Wants=network-online.target
+StartLimitIntervalSec=2h
+StartLimitBurst=2
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecCondition=/usr/bin/test ! -e /home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang/restart-inhibit.latch
+ExecStart=/home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang/adopt-or-start-tp4.sh
+ExecStop=/bin/bash -lc 'cd /home/bertholomus/ai/recipes/DeepSeek-v4.1-Flash-DGX-Sparks && ./start-tp4.sh stop'
+TimeoutStartSec=7500
+TimeoutStopSec=600
+Restart=no
+
+[Install]
+WantedBy=default.target

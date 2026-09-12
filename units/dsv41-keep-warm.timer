@@ -1,0 +1,10 @@
+[Unit]
+Description=dsv41 TP4 keep-warm heartbeat timer (measured decay: 45->25 tok/s by ~20 min idle)
+
+[Timer]
+OnUnitInactiveSec=300s
+AccuracySec=30s
+RandomizedDelaySec=20s
+
+[Install]
+WantedBy=timers.target
