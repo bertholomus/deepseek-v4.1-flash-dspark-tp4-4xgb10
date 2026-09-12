@@ -12,6 +12,10 @@
   re-prefills the whole tail through the radix cache every turn. Free to fix; worth ~20× felt TTFT.
 - **`tools/ttft-probe.py`, `tools/prefix-invalidation-probe.py`, `tools/metrics-quantiles.py`** —
   the three read-only probes that produced the above (production endpoint, no engine change).
+- **Publication scrub fix.** The generator's substitution and post-scan had no rule for the
+  owner's name or the account paths, so `/home/<user>` and `WORKER_USER` were published in the
+  deployed-profile snapshot and six tooling/unit files from v1.1.0 onward. Both now substituted
+  and both added to the fail-closed site scan (the scan exits non-zero on any hit).
 
 ## v1.1.1 — 2026-09-12 — 4-node state guard (tooling and docs only)
 

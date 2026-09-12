@@ -23,12 +23,12 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path("/home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang")
+ROOT = Path("/home/<user>/ai/runtime/deepseek-v41-flash-a1a4-sglang")
 STATE = ROOT / "watchdog-state.json"
 LATCH = ROOT / "restart-inhibit.latch"
 MAINT = ROOT / "maintenance.latch"
 IMAGES = ROOT / "tp4-images.json"
-LEGACY_LATCH = Path("/home/bertholomus/ai/runtime/deepseek-v41-a1a4-candidate/restart-inhibit.latch")
+LEGACY_LATCH = Path("/home/<user>/ai/runtime/deepseek-v41-a1a4-candidate/restart-inhibit.latch")
 LEGACY_SERVICE = "deepseek-v41-a1a4-tp4.service"
 SERVICE = "deepseek-v41-flash-a1a4-sglang-tp4.service"
 MODEL = "deepseek-v4.1-flash"

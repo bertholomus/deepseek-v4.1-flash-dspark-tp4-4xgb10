@@ -4,24 +4,24 @@
 # restart one that is already serving; fail closed on the durable latch.
 set -euo pipefail
 
-ROOT="/home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang"
+ROOT="/home/<user>/ai/runtime/deepseek-v41-flash-a1a4-sglang"
 # Case-robust recipe resolution. The checkout on disk is named
 # "DeepSeek-v4.1-Flash-DGX-Sparks" (lowercase v); a hard-coded uppercase "V"
 # here made every fresh start fail with a bare `cd: No such file or directory`
 # and looked like systemd/mount-namespace blindness. Resolve, do not hard-code.
 RECIPE=""
-for _c in /home/bertholomus/ai/recipes/*eepSeek-[vV]4.1-[fF]lash-DGX-Sparks; do
+for _c in /home/<user>/ai/recipes/*eepSeek-[vV]4.1-[fF]lash-DGX-Sparks; do
   [ -d "$_c" ] || continue
   RECIPE="$_c"
   break
 done
 if [ -z "$RECIPE" ]; then
-  RECIPE="/home/bertholomus/ai/recipes/DeepSeek-v4.1-Flash-DGX-Sparks"
+  RECIPE="/home/<user>/ai/recipes/DeepSeek-v4.1-Flash-DGX-Sparks"
   echo "WARNING: no recipes/*eepSeek-*4.1-*lash-DGX-Sparks directory matched; falling back to $RECIPE" >&2
 fi
 LATCH="$ROOT/restart-inhibit.latch"
 LOCK="$ROOT/.start.lock"
-LEGACY_LATCH="/home/bertholomus/ai/runtime/deepseek-v41-a1a4-candidate/restart-inhibit.latch"
+LEGACY_LATCH="/home/<user>/ai/runtime/deepseek-v41-a1a4-candidate/restart-inhibit.latch"
 SERVED_MODEL="deepseek-v4.1-flash"
 CONTEXT_LEN="1048576"
 

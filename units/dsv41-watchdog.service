@@ -4,7 +4,7 @@ After=deepseek-v41-flash-a1a4-sglang-tp4.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang
+WorkingDirectory=/home/<user>/ai/runtime/deepseek-v41-flash-a1a4-sglang
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/usr/bin/python3 /home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang/watchdog-dsv41-flash-tp4.py
+ExecStart=/usr/bin/python3 /home/<user>/ai/runtime/deepseek-v41-flash-a1a4-sglang/watchdog-dsv41-flash-tp4.py
 TimeoutStartSec=700

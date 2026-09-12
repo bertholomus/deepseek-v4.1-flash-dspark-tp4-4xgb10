@@ -21,7 +21,7 @@ import subprocess
 import sys
 import time
 
-LANE_DIR = "/home/bertholomus/ai/runtime/deepseek-v41-flash-a1a4-sglang"
+LANE_DIR = "/home/<user>/ai/runtime/deepseek-v41-flash-a1a4-sglang"
 BASE = os.environ.get("KEEP_WARM_URL", "http://127.0.0.1:8000")
 IDLE_THRESHOLD_S = int(os.environ.get("KEEP_IDLE_S", "300"))
 BUDGET_S = int(os.environ.get("KEEP_BUDGET_S", "90"))
