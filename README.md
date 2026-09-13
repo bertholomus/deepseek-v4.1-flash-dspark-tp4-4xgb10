@@ -1,4 +1,4 @@
-# DSV41-Flash TP4 Spark Recipe — v1.1.4 (gamma-3 + durable fixes)
+# DSV41-Flash TP4 Spark Recipe — v1.1.5 (gamma-3 + durable fixes)
 
 **BertholomusAI in-house deployment recipe for DeepSeek-V4.1-Flash on 4× NVIDIA DGX Spark (GB10), tensor-parallel 4, served by SGLang.**
 
@@ -17,7 +17,7 @@ AGPL-3.0-or-later launcher repo (§ Licensing in `NOTICE.md`).
 
 | | |
 |---|---|
-| **Recipe version** | **v1.1.4** (codename *gamma-3* + durable fixes) |
+| **Recipe version** | **v1.1.5** (codename *gamma-3* + durable fixes) |
 | **Target** | 4× DGX Spark (GB10, SM121), 2-rail CX7 fabric, TP4 |
 | **Serving stack** | SGLang `dev-dsv41` (image tag `dsv41-4x-spark:local`) |
 | **Model** | DeepSeek-V4.1-Flash (checkpoint `dba1be0a`, MIT), 48 shards, /models/DeepSeek-V4.1-Flash |
@@ -30,7 +30,8 @@ AGPL-3.0-or-later launcher repo (§ Licensing in `NOTICE.md`).
 
 ## 1. What makes it ours
 
-Seven measured deviations from the upstream example plus one required patch. Each was
+Seven measured deviations from the upstream example plus one required patch, plus the
+instrumentation values production runs (nine rows in total). Each was
 A/B'd on the live lane against the same harness (`tp4_ab.py` / `agentic_single_stream.py`,
 temp 0, warm lane) — nothing here is a guess. Full numbers: `docs/EVIDENCE.md`.
 
@@ -41,9 +42,10 @@ temp 0, warm lane) — nothing here is a guess. Full numbers: `docs/EVIDENCE.md`
 | 3 | `EP_SIZE` | `4` | **`2`** | fitted to per-node memory headroom |
 | 4 | `DSV41_CACHE_GIB` (engram NVMe KV cache) | `0` | **`4`** | 12 GiB **rejected** — head host-RAM exhaustion ~90 s into weight load |
 | 5 | `DSV41_CACHE_WAYS` | `4` | **`16`** | engram hit rate 74% aggregate (82% @A1 → 44% @A4) |
-| 6 | `EXTRA_SGLANG_ARGS` | `--fp8-gemm-backend flashinfer_cutlass --watchdog-timeout 1800` | **+ `--speculative-dspark-align-verify-tokens-to-graph-tier --min-free-slots-delay 1 --enable-deepseek-v4-fp4-indexer`** | graph-tier alignment; FP4 indexer path |
+| 6 | `EXTRA_SGLANG_ARGS` | `--fp8-gemm-backend flashinfer_cutlass --watchdog-timeout 1800` | **+ `--speculative-dspark-align-verify-tokens-to-graph-tier --min-free-slots-delay 1 --enable-deepseek-v4-fp4-indexer --enable-metrics --enable-metrics-for-all-schedulers --enable-mixed-chunk`** | graph-tier alignment; FP4 indexer path; engine metrics; mixed-chunked prefill (measured winner 2026-09-12) |
 | 7 | `NCCL_HOST_DIR` | `$HOME/nccl-2.30.7` | **empty** | not vendored in repo; image ships NCCL 2.28.3 |
 | 8 | `WORKER_ENGRAM_DIR` | — | **`$HOME/dsv41-engram`** | A4 home is an XFS-loop symlink; docker resolves symlinks |
+| 9 | DSpark instrumentation/experiment variables | unset | **`SGLANG_DSPARK_FOLDED_PROPOSAL=1`, `SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL=60`, `SGLANG_DSPARK_ENABLE_SPS_RECORD=0`, `SGLANG_SIMULATE_ACC_LEN=-1`** | the values every measurement in `docs/EVIDENCE.md` was taken at; they only reach the containers because patch `0002` forwards them |
 | P | **Patch: per-node active IB HCA discovery** (`patches/0001-*.diff`, +37/−1 in `start.sh`) | hardcoded `IB_HCA` | auto-detect PORT_ACTIVE per node | **required** — TP4 boot fails on mixed HCA naming (`mlx5_0/mlx5_2` vs `rocep1s0f0/roceP2p1s0f0`). Submitted upstream as PR #10. |
 
 Kept at upstream defaults (verified correct for us): `MEM_FRACTION_STATIC=0.90`,
@@ -190,9 +192,17 @@ Consequences, each measured rather than assumed:
   when folded proposal is off, and folded proposal is ~9% faster. §10.
 - **NCCL protocol is not the lever either.** Re-allowing LL128 (the ban existed to save pinned
   RAM: 4.7 GiB → 0.14 GiB) measured **+1.7%, inside noise**. §11.
-- **What is left: the structure of the all-reduce itself** — one small transfer per layer per
-  step, ~800/s. Untested candidates: two-batch overlap, fused MoE-sum + all-reduce, quantized
-  communications. (FlashInfer all-reduce fusion is gated out: it requires SM100, GB10 is SM121.)
+- **The communication candidates are closed as configuration** (v1.1.5): two-batch overlap
+  (hard boot reject for this model), fused MoE-sum + all-reduce (Triton runner only), MoE
+  finalize + TP all-reduce fusion (needs the TRT-LLM runner pairing we do not run — the engine
+  says so at boot), FlashInfer all-reduce fusion (SM100-gated; GB10 is SM121, and forcing the
+  flag raises at boot), quantized comms (NPU-only), fused qk-norm-rope (other architectures).
+  Exact stop sites: `docs/COMM-AUDIT.md`. The 23% is therefore a code-level property of this
+  path, not an unturned knob; reaching it needs an upstream change, an SM100-class part, or
+  fewer TP legs (owner-declined).
+- **The lever still open is prefill chunk sizing**, staged as a one-variable A/B with rollback:
+  `docs/WINDOW-PREFILL-CHUNK.md`. Cold prefill is 7.1% of lane wall clock, and the expensive
+  turns are the 16–43k uncached ones cut into 4–11 chunk-steps at `chunked_prefill_size=4096`.
 
 **Hardware caveat worth stating plainly:** the four nodes are *not* on identical firmware —
 two run driver `580.173.02`/BIOS `0105`, two run `580.159.03`/BIOS `0104`. TP4 lockstep means the

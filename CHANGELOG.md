@@ -1,5 +1,50 @@
 # CHANGELOG
 
+## v1.1.5 — 2026-09-13 — comm line closed by source audit; env-file provenance fixed; prefill-chunk window staged
+
+**No live-lane change in this release.** Everything below is documentation, an env-file
+correction that makes the published recipe match what production already runs, and a staged
+window. Zero boots spent, zero service restarts.
+
+**Formula file change — `env.tp4` (reproducibility fix, not a behaviour change)**
+- `EXTRA_SGLANG_ARGS` now carries the three durable-fix flags production has been running since
+  2026-09-12: `--enable-metrics --enable-metrics-for-all-schedulers --enable-mixed-chunk`.
+- The four DSpark instrumentation/experiment variables production runs are now published:
+  `SGLANG_DSPARK_FOLDED_PROPOSAL=1`, `SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL=60`,
+  `SGLANG_DSPARK_ENABLE_SPS_RECORD=0`, `SGLANG_SIMULATE_ACC_LEN=-1`.
+- **Why this matters:** the v1.1.4 release proof covered the *patch* surface (applying
+  `patches/000NN` to a clean checkout and diffing `start.sh`/`Dockerfile` against production).
+  It never compared the environment file — and `env.tp4` was under-describing production. Anyone
+  building from v1.1.4 would have got a lane with no engine metrics and without mixed-chunked
+  prefill, i.e. not the lane every number in `docs/EVIDENCE.md` was measured on.
+- **No production edit was needed:** production already runs these values. Rollback is not
+  applicable; for the frozen production file use `env.tp4.as-deployed-20260913` (value-identical
+  to what the live lane runs), and for the pre-durablefix v1.1.4 file the historical
+  `env.tp4.as-deployed-20260912`.
+
+**Results**
+- **Communication line CLOSED as configuration.** Six candidates, six exact stop sites:
+  two-batch overlap (hard boot reject for this model, `deepseek_v4_hook.py:280`), fused MoE-sum
+  + all-reduce (Triton-runner-only), MoE finalize + TP all-reduce fusion (requires the
+  `flashinfer_trtllm` runner + NVFP4 pairing we do not run — the engine states it at boot),
+  FlashInfer all-reduce fusion (SM100-gated, GB10 is SM121), quantized comms (NPU-only), fused
+  qk-norm-rope (other architectures). Plus the one that would have cost a **failed boot**:
+  setting `--flashinfer-allreduce-fusion-backend` on GB10 raises from
+  `flashinfer_comm_fusion.py:56` via `distributed/bootstrap.py:203`. Method: source audit of the
+  running image, no boot spent. `docs/COMM-AUDIT.md`, `docs/TUNING-LOG.md` §7.
+- **Provenance gap CLOSED** with a repeatable value-for-value audit, now part of the release
+  checklist. `docs/PROVENANCE-AUDIT.md`.
+- **Next lever staged, not run:** prefill chunk sizing (`CHUNKED_PREFILL_SIZE` 4096 → 8192),
+  one-variable A/B, engine-side metrics + cold-turn TTFT, explicit contaminant discard rules and
+  one-copy rollback. `docs/WINDOW-PREFILL-CHUNK.md`.
+
+**Docs**
+- New: `docs/COMM-AUDIT.md`, `docs/PROVENANCE-AUDIT.md`, `docs/WINDOW-PREFILL-CHUNK.md`.
+- `docs/TUNING-LOG.md`: §7 (the comm closures + the "env file is part of the formula" rule).
+- `docs/RECOMMENDATIONS.md`: status update — acceptance line closed negative, comm closed,
+  prefill chunk sizing named as the remaining configuration lever.
+- `README.md`: deviation table extended (row 9: DSpark instrumentation values), version bump.
+
 ## v1.1.4 — 2026-09-13 — KV pool raised; acceptance, engram and NCCL lines closed; comm named as the lever
 
 **Formula changes (both reversible, both measured on live A1–A4)**

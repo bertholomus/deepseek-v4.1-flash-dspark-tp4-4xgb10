@@ -90,3 +90,32 @@ config knob: `warm-lane.py` post-boot, `keep-warm` heartbeat when idle.
 - **Recorders can be structurally blind.** The block-accept estimator only runs when folded
   proposal is off, so its readings never described production. Check the *gate* before believing
   the recorder.
+
+## 7. 2026-09-13 — the communication candidates, closed by source audit (no boot spent)
+
+The v1.1.4 release named four communication candidates. All four are now **unreachable by
+configuration** on this build, architecture and checkpoint — verified by reading the running
+image, with the exact stop site recorded in `docs/COMM-AUDIT.md`:
+
+| Candidate | Stop site |
+|---|---|
+| Two-batch overlap | `arg_groups/deepseek_v4_hook.py:280` — hard reject: "DeepSeek-V4.1 does not support two-batch overlap yet" |
+| `--enable-fused-moe-sum-all-reduce` | read only by the **Triton** MoE runner (`moe_runner/triton_utils/fused_moe.py:585`); we run `flashinfer_mxfp4` |
+| MoE finalize + TP all-reduce fusion (CustomAllReduceV2 push plane) | requires `Mxfp4FlashinferTrtllmMoEMethod` **and** the `flashinfer_trtllm` runner + NVFP4 (`fused_moe_triton/layer.py:465-481`, `mxfp4_flashinfer_trtllm_moe.py:570`); we are Cutlass MXFP4 — the boot log says so: *"deferred finalize is disabled (moe_runner_backend=flashinfer_mxfp4, quant_method=Mxfp4FlashinferCutlassMoEMethod)"* |
+| FlashInfer AllReduce fusion (mnnvl/trtllm) | `communicator.py:190-200` requires SM90/SM100; `utils/common.py:295` defines SM100 as capability **major 10**; GB10 is **(12,1)** |
+| Quantized (INT8) communications | `arg_groups/validation_hook.py:206` — NPU-only, raises on CUDA |
+
+**New hard rule:** never set `--flashinfer-allreduce-fusion-backend` on GB10. It is not merely
+inert — `layers/flashinfer_comm_fusion.py:56` raises `ValueError` from `bootstrap.py:203`, so the
+lane would fail to boot and the window would be lost.
+
+**Consequence for the recipe's story:** the 23% all-reduce is not an unturned knob; it is a
+property of the MXFP4/Cutlass path on SM121. Reaching it needs an upstream code change, an
+SM100-class part, or fewer TP legs (owner-declined). The remaining *configuration* lever is
+prefill chunk sizing — `docs/WINDOW-PREFILL-CHUNK.md`.
+
+- **The env file is part of the formula.** The v1.1.5 provenance audit found `env.tp4` was
+  missing the durable-fix flags and the four DSpark variables that production runs (metrics,
+  mixed-chunk, folded proposal). Patch-application proof on `start.sh`/`Dockerfile` is not
+  enough — compare the parsed environment value-for-value before every release
+  (`docs/PROVENANCE-AUDIT.md`).

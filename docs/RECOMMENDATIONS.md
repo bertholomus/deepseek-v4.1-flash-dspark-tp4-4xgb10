@@ -1,5 +1,20 @@
 # RECOMMENDATIONS — what would actually make this better
 
+**STATUS UPDATE 2026-09-13 (v1.1.5 audit window):**
+- **The acceptance/verify-window lever is CLOSED (negative).** §5 item 2 below was written
+  before the measurement landed: the uncapped accept ceiling (~2.66) sits *below* production's
+  3.25, and the recorder that produced the "+23%" reading is structurally blind while folded
+  proposal is on. Nothing to patch. `docs/EVIDENCE.md` §10.
+- **The communication candidates are CLOSED as configuration.** Two-batch overlap, fused
+  MoE-sum + all-reduce, MoE finalize + TP all-reduce fusion, FlashInfer all-reduce fusion and
+  quantized communications are all unreachable on this build/arch/checkpoint, each with an exact
+  stop site. `docs/COMM-AUDIT.md` (and TUNING-LOG §7 — including the one that would have cost a
+  failed boot).
+- **The remaining configuration lever is prefill chunk sizing**, staged and ready to run in a
+  window: `docs/WINDOW-PREFILL-CHUNK.md`. Everything else in §5 is closed or is capacity.
+- Provenance: `env.tp4` was found to under-describe production and is fixed;
+  `docs/PROVENANCE-AUDIT.md` + the release-checklist rule.
+
 **STATUS UPDATE 2026-09-12 (durable-fix window executed):**
 - ~~§1 mixed-chunk A/B~~ — **DONE, kept** (`enable_mixed_chunk=True` verified in resolved
   args; interleave witness + plateau 113.34). See `DURABLEFIX-RESULT.md`.
