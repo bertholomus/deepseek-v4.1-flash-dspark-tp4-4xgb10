@@ -1,13 +1,14 @@
-# DSV41-Flash TP4 Spark Recipe — v1.1 (gamma-3 + durable fixes)
+# DSV41-Flash TP4 Spark Recipe — v1.1.4 (gamma-3 + durable fixes)
 
 **BertholomusAI in-house deployment recipe for DeepSeek-V4.1-Flash on 4× NVIDIA DGX Spark (GB10), tensor-parallel 4, served by SGLang.**
 
 This is *our* formula: the upstream launcher repo plus our measured, evidence-gated
-deviations. Everything here was verified on live hardware (spark1..spark4) on 2026-09-11/12.
+deviations. Everything here was verified on live hardware (spark1..spark4) on 2026-09-11/13.
 
 **Ownership.** The **BertholomusAI in-house recipe**, maintained as a first-class versioned
-artifact rather than a fork: the only upstream-facing *code* change is `patches/0001-*.diff`,
-submitted back as PR #10. Upstream attribution and third-party licences are preserved in
+artifact rather than a fork: the upstream-facing *code* changes are the four `patches/000NN-*.diff`
+files (per-node active-HCA discovery, DSpark env passthrough, the Dockerfile encoding guard, and
+the `cmd_status` weights check), with `0001` submitted back as PR #10. Upstream attribution and third-party licences are preserved in
 `NOTICE.md`. Licensed **AGPL-3.0-or-later** — required, not chosen: this recipe derives from an
 AGPL-3.0-or-later launcher repo (§ Licensing in `NOTICE.md`).
 
@@ -16,13 +17,13 @@ AGPL-3.0-or-later launcher repo (§ Licensing in `NOTICE.md`).
 
 | | |
 |---|---|
-| **Recipe version** | v1.1 (codename *gamma-3* + durable fixes) |
+| **Recipe version** | **v1.1.4** (codename *gamma-3* + durable fixes) |
 | **Target** | 4× DGX Spark (GB10, SM121), 2-rail CX7 fabric, TP4 |
 | **Serving stack** | SGLang `dev-dsv41` (image tag `dsv41-4x-spark:local`) |
 | **Model** | DeepSeek-V4.1-Flash (checkpoint `dba1be0a`, MIT), 48 shards, /models/DeepSeek-V4.1-Flash |
 | **Upstream base** | `MiaAI-Lab/DeepSeek-v4.1-Flash-DGX-Sparks` @ `e59e6eb` |
 | **Endpoint** | `http://100.64.0.1:8000/v1` (tailnet), served name `deepseek-v4.1-flash` |
-| **Context** | 1,048,576 tok/request · 4,000,000 tok shared KV pool (FP8 KV) |
+| **Context** | 1,048,576 tok/request · 8,000,000 tok shared KV pool (FP8 KV) |
 | **Status** | LIVE production on A1–A4 |
 
 ---
@@ -36,7 +37,7 @@ temp 0, warm lane) — nothing here is a guess. Full numbers: `docs/EVIDENCE.md`
 | # | Change | Upstream | Ours | Effect |
 |---|---|---|---|---|
 | 1 | `DSPARK_BLOCK_SIZE` (γ, speculative verify window = γ+1) | `5` | **`3`** | +7–10% @conc2/4 vs γ-4; conc1 flat. Sweep 5→4→3. |
-| 2 | `MAX_TOTAL_TOKENS` (KV pool) | `750000` | **`4000000`** | 1M-context × ~4 concurrent sessions; fitted to 29–32 GB/rank |
+| 2 | `MAX_TOTAL_TOKENS` (KV pool) | `750000` | **`8000000`** | 1M-context × ~8 concurrent sessions; raised 4M→8M 2026-09-13, measured speed-neutral |
 | 3 | `EP_SIZE` | `4` | **`2`** | fitted to per-node memory headroom |
 | 4 | `DSV41_CACHE_GIB` (engram NVMe KV cache) | `0` | **`4`** | 12 GiB **rejected** — head host-RAM exhaustion ~90 s into weight load |
 | 5 | `DSV41_CACHE_WAYS` | `4` | **`16`** | engram hit rate 74% aggregate (82% @A1 → 44% @A4) |
@@ -83,7 +84,7 @@ Capability, from the same two documents:
 | | Upstream `e59e6eb` | **This recipe** | Δ |
 |---|---|---|---|
 | Context **configured** | 200k–256k (model max 1M) | **1,048,576** | **4.1–5.2×** |
-| KV pool | 750,000 tok | **4,000,000 tok** (FP8) | **5.33×** |
+| KV pool | 750,000 tok | **8,000,000 tok** (FP8) | **10.67×** |
 | Speculative verify window | 6 tokens (γ=5) | **4 tokens (γ=3)** | narrower, measured faster |
 | Free memory while serving | ~6 GB on the head | **29–32 GB/rank** | — |
 
@@ -159,3 +160,41 @@ Full discipline, including the maintenance latch: `docs/OPERATIONS.md`.
 - Model: DeepSeek-V4.1-Flash, **MIT** (`LICENSE` in the checkpoint). Weights are *not*
   redistributed here — this repo is configuration, patches and operations tooling only.
 - Patch P was offered upstream as PR #10 from `bertholomus` (`8d595d6`).
+
+---
+
+## Where the remaining speed lives (2026-09-13 profile)
+
+A torch-profiler capture of live decode (4.6M events over 37 s) says where the time goes, and
+it is not the two places people expect:
+
+| Subsystem | Share of GPU work |
+|---|---|
+| MoE GEMM (already MXFP4, 4.25 bpw, QAT'd upstream) | ~37% |
+| **bf16 inter-node all-reduce** (29,838 calls ⇒ ~800/s, 279 µs each) | **23%** |
+| Dense GEMM | ~11% |
+| mHC | ~3.6% |
+| Attention | 2.6% |
+| **Engram gather + hash** | **0.6%** |
+
+Consequences, each measured rather than assumed:
+
+- **Quantization's classic ~2× prize does not exist here.** The routed experts already ship
+  4-bit (MXFP4) as QAT'd by DeepSeek; ~57% of the checkpoint is already 4-bit. The only large
+  FP8 block left is the engram tables, and engram is 0.6% of the step. See `docs/EVIDENCE.md` §9.
+- **Engram is not a speed lever.** NVMe sits at ~12% utilisation with ~8× headroom; hit rate is
+  84–86% single-stream (67.7% at 4 streams) on a 2 GiB/layer, 16-way cache. It buys memory and
+  cold-start, not tok/s. §9.
+- **The acceptance lever is closed.** The uncapped accept-length ceiling (~2.66) sits *below*
+  what production already achieves (3.25); the recorder that produced the +23% reading only runs
+  when folded proposal is off, and folded proposal is ~9% faster. §10.
+- **NCCL protocol is not the lever either.** Re-allowing LL128 (the ban existed to save pinned
+  RAM: 4.7 GiB → 0.14 GiB) measured **+1.7%, inside noise**. §11.
+- **What is left: the structure of the all-reduce itself** — one small transfer per layer per
+  step, ~800/s. Untested candidates: two-batch overlap, fused MoE-sum + all-reduce, quantized
+  communications. (FlashInfer all-reduce fusion is gated out: it requires SM100, GB10 is SM121.)
+
+**Hardware caveat worth stating plainly:** the four nodes are *not* on identical firmware —
+two run driver `580.173.02`/BIOS `0105`, two run `580.159.03`/BIOS `0104`. TP4 lockstep means the
+slowest rank sets the step, so non-uniform firmware is a standing suspect; it has not yet been
+shown to cost throughput and was deliberately **not** changed mid-window. §12.

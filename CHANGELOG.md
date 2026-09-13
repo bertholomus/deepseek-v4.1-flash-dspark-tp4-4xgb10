@@ -1,5 +1,59 @@
 # CHANGELOG
 
+## v1.1.4 — 2026-09-13 — KV pool raised; acceptance, engram and NCCL lines closed; comm named as the lever
+
+**Formula changes (both reversible, both measured on live A1–A4)**
+- `MAX_TOTAL_TOKENS` **4,000,000 → 8,000,000** (FP8 KV). Covers ~8 concurrent 1M-token
+  sessions. Speed-neutral (the step is latency-bound, not KV-bound). Rollback: `4000000`.
+- `patches/0002-dspark-env-passthrough.diff`: `start.sh` now forwards the DSpark
+  instrumentation/experiment variables (`SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL`,
+  `SGLANG_DSPARK_FOLDED_PROPOSAL`, `SGLANG_DSPARK_ENABLE_SPS_RECORD`, `SGLANG_SIMULATE_ACC_LEN`,
+  `SGLANG_RAGGED_VERIFY_MODE`, `SGLANG_DSPARK_STS_COLLECT_PATH`) to head **and** workers.
+  **Why it matters:** `start.sh` passes an explicit allowlist; without these lines a variable set
+  in `.env.tp4` never reaches the containers, and an experiment silently runs as a no-op.
+- `patches/0004-status-weights-check.diff`: `cmd_status` tested a head-side path on the workers
+  and reported a false `weights:MISSING` on a healthy fleet; it now tests the container's own
+  mount.
+- `patches/0003-dockerfile-encoding-guard.diff`: build-time patch for the placeholder-token
+  guard that otherwise turns any transcript carrying the literal token into a self-sustaining
+  HTTP 500 loop. Fails the build loudly if the base image drifts.
+
+**Results — three lines closed, one named**
+- **Acceptance line CLOSED (negative).** Uncapped accept-length cumulative ≈ **2.66** over 15,689
+  blocks, i.e. *below* production's 3.25; the folded-off arm measured 2.84 mean and ~**9% slower**
+  than folded-on. The recorder that produced the pinned "+23%" reading is structurally blind
+  unless folded proposal is off (`dspark_observability.py` gate), and the cap thresholds were
+  already 1.0. No patch to write. Patch `0002` exists precisely so this line can be re-run: see
+  `docs/EVIDENCE.md` §10.
+- **Engram line CLOSED for speed.** 230 ms of 35.7 s of GPU work = **0.6%**; NVMe ~12% util,
+  8× headroom; 2 GiB/layer 16-way cache, 84–86% hit single-stream. Engram buys memory and
+  cold-start, not tok/s.
+- **NCCL LL128 line CLOSED (negative).** The `^LL128` ban exists to save pinned RAM (4.7 GiB →
+  0.14 GiB). Re-allowing it with the small buffers kept (~128 MiB pinned) measured **+1.7%** —
+  inside run-to-run noise. Protocol choice is not the lever.
+- **Comm named as the remaining lever.** bf16 all-reduce is 23% of GPU work at ~800 calls/s ×
+  279 µs. Candidates not yet tested: two-batch overlap, fused MoE-sum + all-reduce, quantized
+  communications. FlashInfer all-reduce fusion is gated out on SM121.
+
+**Ops / method notes**
+- Engine logs die with the container: harvest `docker logs` **before** any restart, or the
+  measurement window is lost.
+- `tools/gpu-state-probe.py` can no longer run alongside the engine (8M pool + 0.90 mem
+  fraction ⇒ `cudaErrorMemoryAllocation`); per-node slow-state checks need a maintenance window.
+- Fleet traffic from other agent lanes makes matched A/B windows scarce; label and discard
+  contaminated windows rather than averaging through them.
+
+**Hardware**
+- Firmware is not uniform across the four nodes: 2× driver `580.173.02` / BIOS `0105`, 2× driver
+  `580.159.03` / BIOS `0104`. Documented, not changed; TP4 lockstep makes the slowest rank the
+  step time, so this is a standing suspect (`docs/EVIDENCE.md` §12).
+
+**Limits at release**
+- Single-stream throughput is unchanged by this release (~36 tok/s client median in a quiet
+  window, ~37 engine-side). v1.1.4 is a capability/durability release, not a speed release.
+- The comm candidates above are *named*, not *proven*.
+
+
 ## v1.1.3 — 2026-09-12 — follow-up measurements: one gain confirmed, one falsified (tooling/docs only)
 
 - **Falsified (our own recommendation).** Context hygiene was ranked the #1 speed lever. Measured

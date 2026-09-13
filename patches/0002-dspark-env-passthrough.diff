@@ -1,0 +1,43 @@
+diff --git a/start.sh b/start.sh
+index 61b8956..8074309 100755
+--- a/start.sh
++++ b/start.sh
+@@ -260,6 +264,25 @@ docker_common_args() {
+     -e "DSV41_PACKED_DIR=$DSV41_PACKED_DIR"
+     -e "DSPARK_SPS_TABLE=$DSPARK_SPS_TABLE"
+     -e "DSPARK_STS_TABLE=$DSPARK_STS_TABLE"
++    # A1A4: the DSpark SPS cost table (sglang.benchmark.dspark_sps_profiler) can only
++    # be collected while the server records per-step dspark_info, which requires this
++    # flag; keep it 0 unless a profiling boot is intended.
++    -e "SGLANG_DSPARK_ENABLE_SPS_RECORD=${SGLANG_DSPARK_ENABLE_SPS_RECORD:-0}"
++    # A1A4 2026-09-13: online block-accept ceiling estimator passthrough
++    # (instrumentation only; 0 = off). Rollback: delete this line.
++    -e "SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL=${SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL:-0}"
++    # A1A4 2026-09-13: folded-proposal passthrough (1 = engine default fast path,
++    # 0 = estimator-visible; must match on every rank). Rollback: delete this line.
++    -e "SGLANG_DSPARK_FOLDED_PROPOSAL=${SGLANG_DSPARK_FOLDED_PROPOSAL:-1}"
++    # A1A4: SPS profiling runs with acceptance simulated (=1.0) so per-step KV
++    # conditioning is deterministic; -1 is the engine default (disabled).
++    -e "SGLANG_SIMULATE_ACC_LEN=${SGLANG_SIMULATE_ACC_LEN:--1}"
++    # A1A4: ragged-verify mode passthrough (static = engine default/production;
++    # cap-accept|compact for experiments). Must match on every rank.
++    -e "SGLANG_RAGGED_VERIFY_MODE=${SGLANG_RAGGED_VERIFY_MODE:-static}"
++    # A1A4: STS shard dump path (used only when the confidence head is built,
++    # i.e. cap-accept/compact). Empty = off.
++    -e "SGLANG_DSPARK_STS_COLLECT_PATH=${SGLANG_DSPARK_STS_COLLECT_PATH:-}"
+     -e "DSV41_SOURCE=/models/DeepSeek-V4.1-Flash"
+     -e "MODEL_PATH=/models/DeepSeek-V4.1-Flash"
+     -e "STATE_PATH=/state"
+@@ -359,6 +382,12 @@ worker_env_lines() {
+         -e DSV41_PACKED_DIR=$DSV41_PACKED_DIR \\
+         -e DSPARK_SPS_TABLE=$DSPARK_SPS_TABLE \\
+         -e DSPARK_STS_TABLE=$DSPARK_STS_TABLE \\
++        -e SGLANG_DSPARK_ENABLE_SPS_RECORD=${SGLANG_DSPARK_ENABLE_SPS_RECORD:-0} \
++        -e SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL=${SGLANG_DSPARK_BLOCK_ACCEPT_ONLINE_INTERVAL:-0} \
++        -e SGLANG_DSPARK_FOLDED_PROPOSAL=${SGLANG_DSPARK_FOLDED_PROPOSAL:-1} \\
++        -e SGLANG_SIMULATE_ACC_LEN=${SGLANG_SIMULATE_ACC_LEN:--1} \\
++        -e SGLANG_RAGGED_VERIFY_MODE=${SGLANG_RAGGED_VERIFY_MODE:-static} \\
++        -e SGLANG_DSPARK_STS_COLLECT_PATH=${SGLANG_DSPARK_STS_COLLECT_PATH:-} \\
+         -e DSV41_SOURCE=/models/DeepSeek-V4.1-Flash \\
+         -e MODEL_PATH=/models/DeepSeek-V4.1-Flash -e STATE_PATH=/state \\
+         -e SERVER_PORT=$PORT -e HOST=0.0.0.0 \\

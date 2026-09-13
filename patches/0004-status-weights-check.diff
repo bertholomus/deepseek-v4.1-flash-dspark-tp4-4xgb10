@@ -1,0 +1,16 @@
+diff --git a/start.sh b/start.sh
+index 61b8956..8074309 100755
+--- a/start.sh
++++ b/start.sh
+@@ -768,7 +809,10 @@ cmd_status() {
+   local h
+   for h in "${WORKER_HOSTS[@]}"; do
+     echo "== worker $h =="
+-    remote_on "$h" "docker ps --filter name=$WORKER_CTN --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' ; test -f $COMMON_MODEL/config.json && echo weights:OK || echo weights:MISSING" || warn "status SSH $h failed"
++    # Weights on a worker live in the NFS docker volume mounted at /models/DeepSeek-V4.1-Flash
++    # INSIDE the container; $COMMON_MODEL is a head-side path, so testing it on the worker
++    # reported weights:MISSING on a healthy fleet. Test the container's own mount instead.
++    remote_on "$h" "docker ps --filter name=$WORKER_CTN --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' ; docker exec $WORKER_CTN test -f /models/DeepSeek-V4.1-Flash/config.json && echo weights:container-OK || echo weights:MISSING" || warn "status SSH $h failed"
+     echo
+   done
+   echo "== API =="

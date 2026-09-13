@@ -49,11 +49,12 @@ Net vs stock: **~2.1× @conc1, ~2.1× @conc2, ~1.85× @conc4.**
 - `batchtest.py`: **0 garbled** (run on both gamma-4 and gamma-3).
 - Needle-in-haystack: needle at ~136k depth → **`PELICAN-1` exact**; `prompt_tokens=141385`;
   prefill **1773 tok/s** (79.7 s for prefill + 20 generated tokens).
-- Context (configured, live): `context_len=1048576`, `max_total_num_tokens=4000000`,
+- Context (configured, live): `context_len=1048576`, `max_total_num_tokens=8000000`
+  (raised 4,000,000 → 8,000,000 on 2026-09-13; §8),
   KV dtype `fp8_e4m3`, `max_prefill_tokens=16384`, `chunked_prefill_size=4096`,
-  `max_running_requests=8`, `available_gpu_mem≈29–32 GB/rank`.
+  `max_running_requests=8`, `available_gpu_mem≈23–32 GB/rank`.
 - Boot-log line proving the gamma actually took effect:
-  `max_total_num_tokens=4000000, chunked_prefill_size=4096, max_prefill_tokens=16384,
+  `max_total_num_tokens=8000000, chunked_prefill_size=4096, max_prefill_tokens=16384,
   max_running_requests=8, context_len=1048576` — and per-boot `gamma=3,
   verify_num_draft_tokens=4`. Verify the boot log, never assume the env line won.
 
@@ -105,3 +106,86 @@ Its safety logic is unaffected — `keep-warm.py` derives "idle" from the engine
 Source handoff: `handoffs/20260912-sps-profiling-attempt1.md` (progressive tuning record +
 dead-end bank), `handoffs/20260912-engram-mechanisms-study.md`. All measurements taken on
 spark1..spark4, 2026-09-11/12, by the operator's agent lane.
+
+## 8. KV pool: 4M → 8M (2026-09-13)
+
+- Raised `MAX_TOTAL_TOKENS` 4,000,000 → 8,000,000 on the live lane; verified in-container
+  (`MAX_TOTAL_TOKENS=8000000`), health 200, ping clean.
+- **Speed-neutral.** Matched single-stream before/after: no change outside noise — consistent
+  with §4 (the step is latency-bound, not KV-read-bound). The pool is a *capability* knob
+  (8 concurrent 1M sessions) and a safety margin, not a tok/s knob.
+- Rollback: `.env.tp4.pre-kv8m-*` then `reset-failed` + `restart`.
+- **Side effect worth knowing:** the larger pool plus `MEM_FRACTION_STATIC=0.90` leaves no
+  headroom for an external CUDA probe. `tools/gpu-state-probe.py` now OOMs alongside the engine
+  (`cudaErrorMemoryAllocation` on 3 of 4 nodes); per-node slow-state probing needs a maintenance
+  window with the lane down. This is a measurement-method cost of the raise, not a serving cost.
+
+## 9. Decode profile: where the step actually goes (2026-09-13)
+
+Method: torch profiler via the engine's own `/start_profile` + `/stop_profile` endpoints during a
+596-token single stream (31.3 s), aggregated from a 140 MB Chrome trace, 4.6M events.
+
+| Subsystem | Share of 35.7 s GPU work |
+|---|---|
+| MoE GEMM (MXFP4, FlashInfer) | ~37% |
+| **bf16 RING all-reduce** | **23%** (29,838 calls / 37 s ≈ 800/s, 279 µs each) |
+| Dense GEMM | ~11% |
+| mHC | ~3.6% |
+| Attention | 2.6% |
+| Engram gather + hash | 0.6% (230 ms) |
+
+Supporting measurements:
+- **Engram is not the bottleneck.** NVMe ~12% utilisation, ~1,200 read IOPS, 0.2–0.4 ms latency,
+  iowait ~1%. Cache 2 GiB/layer (16-way); hit rate 84–86% single-stream, 67.7% at 4 streams.
+  Per-layer counters (engine log): `lookups=221,245 hit_rate=84.2% reads=34,971` (layer 1);
+  `lookups=516,775 hit_rate=83.4% reads=85,828` (layer 14). Worst observed minute: 79.8% hit,
+  21,901–85,874 reads/min for a layer.
+- **SM was 94% busy during decode**, and GB10 does not expose memory-controller counters via
+  `dmon`, so a bandwidth-bound claim was **not** made from that probe.
+- **The classic quantization prize is absent**: routed experts already ship MXFP4 4.25 bpw (QAT'd
+  upstream by DeepSeek) ⇒ ~57% of the checkpoint is already 4-bit. The remaining FP8 is the
+  engram tables (~189 GiB) plus ~9 GiB of dense/attention weights.
+
+## 10. Acceptance line — CLOSED as an artifact (2026-09-13)
+
+- Uncapped accept-length, cumulative over **15,689 blocks: ≈ 2.66**. Production already runs
+  **3.25**. The "ceiling" sits *below* current performance, and the cap thresholds were already
+  open at 1.0 — so a confidence-head patch had nothing to deliver.
+- Folded-off arm (`SGLANG_DSPARK_FOLDED_PROPOSAL=0`): observed accept 2.84 mean vs production
+  3.25, and matched single-stream ~**9% slower** (predicted 14%). Folded proposal is confirmed
+  the right production choice.
+- Root cause of the bogus "+23%" reading: `dspark_observability.py` only feeds the block-accept
+  recorder when the proposal is **not** folded, so the proposal path is structurally invisible.
+- The estimator recorder stays enabled (inert on the fast path, free re-profiling later). The
+  `start.sh` passthrough published as `patches/0002` is what lets this be re-run at all.
+
+## 11. NCCL LL128 A/B — CLOSED as a no-op (2026-09-13)
+
+The recipe ships `NCCL_PROTO=^LL128` purely to hold pinned host memory at 0.14 GiB instead of
+4.7 GiB (default NCCL allocates 512 buffers × 9.19 MiB for Simple + LL128 + LL). With the small
+buffers kept (`NCCL_BUFFSIZE=1 MiB`, `NCCL_LL128_BUFFSIZE=256 KiB`), re-allowing LL128 costs only
+~128 MiB pinned, so the ban was re-tested directly:
+
+| Arm | Single-stream client median (3 × 1000 tok) |
+|---|---|
+| `NCCL_PROTO=^LL128` (baseline) | 35.5 tok/s (27.0 / 36.5 / 35.5) |
+| `NCCL_PROTO=LL,LL128,Simple` | 36.1 tok/s (36.1 / 37.2 / 35.3) |
+
+**+1.7% — inside run-to-run noise.** Engine-side counter agreed (~37 tok/s both boots).
+Two windows were labelled contaminated and discarded (an 8-concurrent fleet spike; a
+67-prefills/10-min cadence from another agent lane). Conclusion: the low-latency protocol is not
+where the 23% all-reduce cost lives — the cost is structural (one small transfer per layer per
+step, ~800/s).
+
+## 12. Hardware note — firmware is not uniform across the four nodes (2026-09-13)
+
+| Node | Driver / GSP | VBIOS | System BIOS | Kernel |
+|---|---|---|---|---|
+| 1, 2 | 580.173.02 | 9A.0B.25.00.00 | GX10DGX.0105.2026.0505.1153 | 6.17.0-1029-nvidia |
+| 3, 4 | 580.159.03 | 9A.0B.1E.00.00 | GX10DGX.0104.2026.0326.1657 | 6.17.0-1026-nvidia |
+
+A clean 2+2 split. In TP4 lockstep the slowest rank sets the step time, so non-uniform
+driver/GSP/VBIOS is a standing suspect for tail latency. **No throughput cost has been
+demonstrated**, and firmware was deliberately not updated mid-window. One node measured
+245.7 GB/s p50 in the decode-shaped GEMV probe ("fast" state) before memory pressure blocked the
+other three; a full four-node slow-state sweep needs a maintenance window (§8).

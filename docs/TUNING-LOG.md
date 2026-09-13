@@ -68,3 +68,25 @@ config knob: `warm-lane.py` post-boot, `keep-warm` heartbeat when idle.
 - **`docker run --rm --entrypoint sh … <<EOF` needs `-i`** or it silently prints nothing.
 - **`pkill -f <pattern>` inside an ssh command kills your own ssh session** if the pattern
   text appears in that command line — use a bracket trick (`"foo[-]bar"`) or match `comm`.
+
+## 6. 2026-09-13 window — traps that cost real time
+
+- **`start.sh` forwards an explicit allowlist.** A variable added to `.env.tp4` alone never
+  reaches the containers; experiments silently run as no-ops and look like "the flag did
+  nothing". Every new experiment variable needs hardcoded `-e VAR=${VAR:-default}` lines in
+  `docker_common_args()` **and** `worker_env_lines()`. Published as `patches/0002-*.diff`.
+- **Engine logs die with the container.** `docker logs` is gone after a restart; the boot
+  script's `serve-*.log` tee captures only a few lines. Harvest the window's `Decode batch`
+  rows **before** restarting, or the measurement is unrecoverable.
+- **`gpu-state-probe.py` no longer fits alongside the engine.** With `MAX_TOTAL_TOKENS=8M` and
+  `MEM_FRACTION_STATIC=0.90`, external CUDA allocations OOM. Probe per node only with the lane
+  down (this is the correct method anyway — it removes contention).
+- **The lane is shared.** Other agent lanes inject real traffic mid-window (8 concurrent
+  requests; 67 prefills/10 min). Label windows and discard contaminated ones; never average
+  through them. Use engine-side `#running-req` histograms to prove what the window actually was.
+- **A ban can be collateral.** `NCCL_PROTO=^LL128` existed only to shrink pinned host memory;
+  the memory win came from the *buffer sizes*, not the protocol ban. Re-testing the ban cost one
+  boot and closed the question (+1.7%, noise).
+- **Recorders can be structurally blind.** The block-accept estimator only runs when folded
+  proposal is off, so its readings never described production. Check the *gate* before believing
+  the recorder.
