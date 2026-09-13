@@ -31,7 +31,62 @@ Three conclusions follow, and they are not the ones the throughput numbers sugge
 3. **Long live context is the standing tax.** Decode reads the whole KV of every running stream
    each step, and prefill attention scales with new-tokens × context. At ~115k tokens of context
    per stream, aggregate decode is 63–90 tok/s — not because of any knob, but because that is
-   how much state each step must touch.
+   how much state each step must touch. *(Superseded by follow-up 2 below: measured directly,
+   context size is NOT the decode lever at this concurrency — the step is latency-bound.)*
+
+## Follow-up measurements (same night) — what survived and what did not
+
+Three follow-ups, all read-only on the live lane. One confirmed, one falsified, one quantified.
+
+**1. Six turns, append-only vs rewritten prefix (CONFIRMED).** Same ~33k-token context, same
+content; only the position of a per-turn value differs:
+
+| variant | TTFT by turn (T1…T6) |
+|---|---|
+| append-only (volatile content appended last) | 0.93 / **0.51 / 0.51 / 0.57 / 0.51 / 0.51** s |
+| rewritten prefix (same value rendered at the top) | **11.0 / 11.5 / 11.4 / 10.8 / 11.5 / 11.4** s |
+
+A client that violates this pays ~11 s **every turn, forever** — 21× per turn, and it never
+recovers. `tools/context-and-turns-probe.py`.
+
+**2. Context hygiene (FALSIFIED as a speed lever).** Decode rate at a cached prefix and equal
+load, arms interleaved so contention hits each equally, 300-token generations, medians of 3:
+**8k → 12.4 tok/s, 32k → 11.2, 96k → 12.3**. Twelve times the context changed decode nothing
+measurable. Only TTFT moved, mildly (0.36 s → 0.72 s, ≈4 µs/token of prefix matching).
+So on this lane the step is latency-bound, not KV-read-bound, and summarising context to chase
+speed is wasted work. `tools/context-curve-interleaved.py`. (Re-test if concurrency rises.)
+
+**3. Cold-prefill tax, fleet-only window (QUANTIFIED).** Same 5-minute interval measured two
+independent ways — `/metrics` deltas and the engine's own `Prefill batch` lines — agreeing to 2 %
+(79,288 vs 77,312 uncached tokens; 7.1 % of wall clock both):
+
+- 13 requests, 1.48 M prompt tokens, **94.6 % cached**, 0 queueing, 0 retractions
+- uncached per turn: p50 1,536 · p90 5,888 · max 42,752 (≈0.4 s / 1.6 s / 11.6 s of prefill)
+- 46 % of turns ≤1k uncached (healthy appended turns); the two >8k turns had **0 cached tokens**
+  — brand-new sessions with a large payload, not re-prefills
+- aggregate 100 tok/s fleet-wide
+
+Conclusion: the fleet does **not** violate prefix stability today, so item 1 is a guardrail to
+keep (and to re-check when an agent's prompt template changes), not a recovery. The felt tail is
+*intrinsic new content*: a cold-start turn with 16–43k uncached tokens waits 4–12 s.
+
+## Revised ranked gains (after the follow-ups)
+
+1. **Prefill chunk sizing, retargeted at the measured case (window required, untested).** The
+   expensive turns are cold-start requests with 16–43k uncached tokens and 0 cached, which
+   `chunked_prefill_size=4096` splits into 4–11 sequential chunk-steps ⇒ 4.4–11.6 s TTFT. Raising
+   the chunk/max-prefill for that shape is the one prefill lever with a measured target.
+2. **Acceptance / verify window (engine defect preceding any tuning).** Ours accepts 2.7–3.4 of a
+   4-token window; the compact (confidence-capped) path that would size the window adaptively is
+   dead on this build — the confidence head is built for `hidden+markov` (5376) but is fed the
+   draft-stage hidden (4352), which raises at `deepseek_v4_dspark.py:1021`, so the
+   `--speculative-dspark-align-verify-tokens-to-graph-tier` flag is inert. Not config-fixable;
+   a patch candidate, upstream-drafted, and the only lever that raises tokens per *step* for
+   every stream at once.
+3. **Capacity** — per-stream is 46–52 tok/s alone, ~12–13 with 3–4 streams, 13.7 with 8: the only
+   measured lever on felt speed at N agents.
+4. **Prefix stability** — keep as a guardrail (proven 21× if violated; currently not violated).
+5. **Context hygiene** — withdrawn as a speed lever (see follow-up 2).
 
 ## The one prompt rule worth ~24×
 
@@ -60,7 +115,7 @@ it is worth up to 20× the felt TTFT.
 - **γ / draft window.** 3.42 of 4 accepted — the window is already sized to the data.
 - **Tokenizer / template / transfer optimisation** — see conclusion 1.
 
-## Ranked gains for a 4-node lane
+## Ranked gains (first pass — superseded by the revised list below)
 
 1. **Context hygiene (free, client side).** ~115k tokens of live context per stream. Decode cost
    and prefill cost both scale with it; no engine setting can undo it. Trimming or summarising

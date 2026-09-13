@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## v1.1.3 — 2026-09-12 — follow-up measurements: one gain confirmed, one falsified (tooling/docs only)
+
+- **Falsified (our own recommendation).** Context hygiene was ranked the #1 speed lever. Measured
+  with interleaved arms and 300-token generations: decode **12.4 / 11.2 / 12.3 tok/s at
+  8k / 32k / 96k** of context — twelve times the context, no measurable change. The step is
+  latency-bound, not KV-read-bound; summarising context for speed is wasted work. Withdrawn.
+- **Confirmed and quantified.** Append-only vs rewritten prefix over six turns on identical
+  ~33k-token content: **0.51 s flat vs 11.0–11.5 s every turn** (21× per turn, never recovers).
+  The live fleet does not violate it: 94.6 % of prompt tokens cached, only 7.1 % of the lane's
+  wall clock goes to cold prefill, and the two >8k-uncached turns in the clean window had 0
+  cached tokens (new sessions, not re-prefills). Prefix stability is therefore a guardrail.
+- **Retargeted the one real prefill lever**: cold-start turns with 16–43k uncached tokens are
+  served as 4–11 sequential 4096-token chunk-steps ⇒ 4.4–11.6 s TTFT; chunk/max-prefill sizing
+  for that shape is now the top engine-side candidate (window required, still untested).
+- **Named the acceptance lever precisely**: the confidence-capped (compact) verify path is dead
+  on this build — head built for `hidden+markov` (5376), fed the draft-stage hidden (4352),
+  raising at `deepseek_v4_dspark.py:1021` — so the align-to-graph-tier flag is inert. Patch
+  candidate; the only lever that raises tokens per step for every stream at once.
+- **Tools**: `tools/context-and-turns-probe.py`, `tools/context-curve-interleaved.py`,
+  `tools/lane-tax-window.py`, `tools/classify-prefills.py` (all read-only; the last two measured
+  the same window two independent ways and agreed to 2 %).
+- No formula change; A1–A4 untouched and serving throughout.
+
 ## v1.1.2 — 2026-09-12 — TTFT decomposition and prefix-stability finding (tooling and docs only)
 
 - **`docs/TTFT-AND-CACHE.md`** — TTFT decomposed on the live lane: cached TTFT is flat (0.35 s @

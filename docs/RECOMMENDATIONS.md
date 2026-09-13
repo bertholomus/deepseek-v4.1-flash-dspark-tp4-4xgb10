@@ -70,26 +70,34 @@ is not the bottleneck; the value would be latency smoothing at best.
 
 ## 5. Where the remaining gains are (measured 2026-09-12, `docs/TTFT-AND-CACHE.md`)
 
-Ranked after decomposing TTFT on the live lane. Items 1–2 are free (no engine change, no window,
-no config) and are prompt/client-side.
+**Revised after direct follow-up measurement.** The first-pass list ranked context hygiene first;
+that was falsified (decode is flat from 8k to 96k of context, arms interleaved). Current ranking:
 
-1. **Context hygiene.** Live streams carry ~115k tokens of context (`#full token` 344,832 across
-   3 running requests); prompts p50 52.5k / p90 148k. Decode cost scales with live context and
-   prefill cost scales with new-tokens × context, so no engine setting can undo it. Shrinking the
-   working set (trim/summarise history) is the largest available multiplier on felt speed.
-2. **Prefix stability.** Prompts should be append-only with everything volatile last. Measured:
-   identical 40k content with a changing marker at the top → 14.005 s turn-2 TTFT; marker at the
-   end → 0.594 s. The radix cache matches only from the first differing byte, so an early
-   timestamp / session id / re-rendered system block re-prefills the whole tail every turn.
-3. **Engine-side prefill levers (need a window, untested here).** `--schedule-policy lpm`
-   (longest-prefix-match scheduling rather than FCFS) and prefill chunk sizing
-   (`chunked_prefill_size` 4096 / `max_prefill_tokens` 16384) for the p99 uncached case
-   (p99 uncached prompt 54,280 tok ≈ 15 s of cold prefill at the measured 3.5–3.9k tok/s).
-4. **Capacity** — see §6.
+1. **Prefill chunk sizing, retargeted at the measured case (window required, untested).** The
+   expensive turns are cold-start requests with 16–43k uncached tokens and **0 cached**
+   (`chunked_prefill_size=4096` ⇒ 4–11 sequential chunk-steps ⇒ 4.4–11.6 s TTFT). This is the one
+   prefill lever with a measured target; `--schedule-policy lpm` is deprioritised with it, since
+   the fleet's uncached tokens are new content rather than missed prefixes.
+2. **Acceptance / verify window — an engine defect precedes any tuning.** Ours accepts 2.7–3.4 of
+   a 4-token window. The compact (confidence-capped) path that would size the window adaptively
+   cannot run on this build: the confidence head is constructed for `hidden+markov` (5376) but is
+   fed the draft-stage hidden (4352) and raises at `deepseek_v4_dspark.py:1021`, leaving
+   `--speculative-dspark-align-verify-tokens-to-graph-tier` inert. Not config-fixable; a patch
+   candidate (upstream-drafted) and the only lever that raises tokens per **step** for every
+   stream at once.
+3. **Capacity** — 46–52 tok/s alone, ~12–13 with 3–4 streams, 13.7 with 8.
+4. **Prefix stability** — a guardrail, not a gain: proven worth 21× per turn if violated, and the
+   live fleet does not violate it (94.6 % of prompt tokens cached; the only large uncached turns
+   are brand-new sessions with 0 cached tokens).
+5. **Context hygiene** — **withdrawn** as a speed lever (falsified; see follow-up 2).
+
+Measured cost of the cold-prefill tax as it stands: **7.1 % of the lane's wall clock**
+(21 s per 5-minute window; 79,288 uncached tokens at 3.7k tok/s), p50 turn 1,536 uncached.
 
 Newly **closed** by measurement (do not retry): smaller KV dtype (no fp4 KV path exists in this
-image; `fp8_e4m3` is already the smallest), KV capacity (7 % used), γ (3.42 of 4 accepted), and
-text-path optimisation (a 39k-token cached prompt costs +0.17 s over a 126-token one).
+image; `fp8_e4m3` is already the smallest), KV capacity (7 % used), γ (2.7–3.4 of a 4-token
+window accepted), text-path optimisation (a 39k-token cached prompt costs +0.17 s over a
+126-token one), and context trimming for speed.
 
 ## 6. Strategic (owner decision, no engineering risk)
 
