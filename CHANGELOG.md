@@ -1,5 +1,60 @@
 # CHANGELOG
 
+## v1.1.6 — 2026-09-14 — gamma-2 adopted (fair-go window); two nulls; measurement-method correction
+
+**One live-lane change: `DSPARK_BLOCK_SIZE` 3 → 2.** Adopted after it cleared a decision rule that
+was fixed *before* the window ran. Nothing else about the lane changed.
+
+**Formula file change — `env.tp4`**
+- `DSPARK_BLOCK_SIZE=2` (γ=2 ⇒ verify window 3). Value-identical to production; frozen snapshot
+  `env.tp4.as-deployed-20260914` (md5 `6add2ff5529e0d39b4e0bd7311e3a840`).
+- Rollback: 3 — the pre-window copy on the lane host, plus `env.tp4.as-deployed-20260913` here;
+  then 5 (stock). One file copy + one boot.
+
+**Why γ=2, and why the v1.1.0 stop rule was wrong**
+v1.1.0 closed the γ sweep at 3 with "at γ=3 accept is 3.0–3.5 of 4, so γ=2 would clip real
+accepts". That was measured on **short synthetic prompts**. Fleet traffic is not short: live agent
+sessions at ~123k context report **accept length 2.20–2.55, accept rate 0.40–0.52** — the third
+drafted position is mostly thrown away, so γ=3 pays a verify-window tax at depth. Measured on a
+fleet-realistic harness (8k/32k/96k, temp 0, per-arm salted prefixes), PRIMARY = prose+code median
+client tok/s:
+
+| arm | config | 8k | 32k | 96k | weighted W |
+|---|---|---|---|---|---|
+| C2 | γ=3 (same-day warm control) | 17.83 | 18.52 | 18.09 | 18.17 |
+| **G2** | **γ=2** | **19.99** | **19.71** | **19.77** | **19.80** |
+| SETTLE | γ=2, independent re-boot | 19.84 | 19.26 | 19.45 | 19.47 |
+
++6.4% … +12.1% vs the same-day control, +4.0% … +11.3% on the independent settle boot — positive at
+every depth. Quality gate: 6/6 arms, 0 garbled.
+
+**Two levers tested and closed as nulls (neither had ever been trialed)**
+- `SGLANG_DSPARK_OPT_FUSED_GREEDY_MARKOV=1` — ships off by default and was absent from our env
+  file. Measured **worse** (W −15.2%, negative at two of three depths). Stays off.
+- `--schedule-policy lpm` — this build's default is **fcfs** (correcting our earlier note). Against
+  the warm control lpm is +2.4%/−1.9%/+0.8% (per depth): a no-op. Its apparent +17% was the
+  window's drift, not the flag. fcfs stays.
+
+**Measurement correction (re-reads every past window)**
+The packed/engram prefix cache **survives an engine restart**, so in a multi-boot window later arms
+silently inherit warm prefixes and arm order leaks into the numbers — this is why the 2026-09-14
+γ-window settle arm read 18.5 tok/s against a 10.6 control *in the same window*. Both γ keeps
+survive it (an arm that loses while warmest loses a fortiori); a window that can *adopt* must not
+have it. The fair-go probe therefore salts every arm's prefix (`tools/patch-fairgo-probe.py`) and
+brackets controls at both ends with a pre-registered drift flag. The flag **did** fire (C2 vs C1:
++37.6% / +44.8% / +38.6%) and forced every arm to clear **both** controls at every depth — γ=2 is
+the only arm that did.
+
+**Closed at source, zero boots spent**
+- `speculative_accept_threshold_single/_acc` are read only by the **dflash**/**eagle** paths
+  (`dflash_utils.py:916`, `eagle_utils.py:907`). DSPARK consumes neither: no engine-provided
+  adaptive-depth knob exists for this build.
+- `SGLANG_DSPARK_FP32_LM_HEAD=1` would be a precision *increase*.
+
+**Upstream findings published as drafts** — `docs/upstream-issues/` carries the two engine defects
+that block the remaining verify-budget work (SPS profiler simulate/capture conflict; cap-accept
+confidence-head capture width). Filing them to the upstream tracker is the owner's call.
+
 ## v1.1.5 — 2026-09-13 — comm line closed by source audit; env-file provenance fixed; prefill-chunk window staged
 
 **No live-lane change in this release.** Everything below is documentation, an env-file

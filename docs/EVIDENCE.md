@@ -27,7 +27,7 @@ Engine metric = the SGLang `Decode batch … gen throughput` counter at `#runnin
 | + PR7 tuning (2026-09-12) | 17.2 | 34.6 | 45.1 | 54.7 | run B: {17.2, 34.6, 45.1, 54.7} |
 | Warm lane (plateau 128 s) | 34.2–34.6 | 51.0–53.3 | — | 66.5–74.1 | **warm-up is worth +60–100% @conc1** |
 | gamma-4 (`DSPARK_BLOCK_SIZE=4`) | 34.1/37.1/37.4 | 50.0/55.7/56.4 | — | 68.3/74.3/71.9 | ×3 rounds |
-| **gamma-3 = production** | **34.8/37.8** | **59.5/61.4** | — | **79.4/78.8** | ×2 rounds; single rounds to 81 |
+| **gamma-3 (production 2026-09-12 → 2026-09-14; superseded by γ=2, §13)** | **34.8/37.8** | **59.5/61.4** | — | **79.4/78.8** | ×2 rounds; single rounds to 81 |
 | Cold (post-boot, no warm) | 16.2 | 34.3 | — | 54.7 | why the warmer exists |
 
 Net vs stock: **~2.1× @conc1, ~2.1× @conc2, ~1.85× @conc4.**
@@ -189,3 +189,48 @@ driver/GSP/VBIOS is a standing suspect for tail latency. **No throughput cost ha
 demonstrated**, and firmware was deliberately not updated mid-window. One node measured
 245.7 GB/s p50 in the decode-shaped GEMV probe ("fast" state) before memory pressure blocked the
 other three; a full four-node slow-state sweep needs a maintenance window (§8).
+
+## 13. Fair-go window (2026-09-14) — γ 3 → 2 ADOPTED; two nulls; method correction
+
+Design, arms and the pre-registered rule (fixed before launch): `WINDOW-FAIRGO.md`. Runner
+`tools/window-fairgo.sh`, window `window-fairgo-20260914T214105Z`, 4 boots + 6 probes, ~92 min,
+latch raised throughout.
+
+Rule: fleet-weighted `W = 0.20·P8 + 0.30·P32 + 0.50·P96` (fleet traffic is long-context
+dominant); adopt iff `W ≥ +5%` vs mean of the two bracketing controls **and** every depth ≥ 92% of
+control **and** zero probe failures **and** a clean garbled-output gate. Drift flag: |C2 − C1| >
+15% at any depth forces an arm to clear **both** controls at that depth.
+
+| arm | config | 8k | 32k | 96k | W | verdict |
+|---|---|---|---|---|---|---|
+| C1 | γ=3, live config (opening control) | 12.96 | 12.79 | 13.05 | 12.95 | — |
+| **G2** | **γ=2** | **19.99** | **19.71** | **19.77** | **19.80** | **ADOPTED** |
+| F1 | `FUSED_GREEDY_MARKOV=1` | 14.27 | 12.62 | 13.12 | 13.20 | null (−15.2%) |
+| L | `--schedule-policy lpm` | 18.22 | 18.16 | 18.23 | 18.21 | null vs warm control |
+| C2 | γ=3 restored (closing control) | 17.83 | 18.52 | 18.09 | 18.17 | — |
+| SETTLE | γ=2 after adoption | 19.84 | 19.26 | 19.45 | 19.47 | confirms +4.0…+11.3% |
+
+PRIMARY = prose+code median client tok/s, temp 0, 300-token generations, per-arm salted prefixes;
+`list` style recorded in the JSON. Gate: 6/6 arms `garbled=0`.
+
+**The drift flag fired, and it decided the window.** C2 vs C1: +37.6% / +44.8% / +38.6% — the lane
+got materially faster mid-window as fleet contention eased. Against the *closing* control: γ=2
++12.1 / +6.4 / +9.3%, `lpm` +2.4 / −1.9 / +0.8%, fused-greedy −20.0 / −31.9 / −27.5%.
+
+So: **`lpm` is a no-op that a mean-based rule alone would have credited with +17%.** γ=2 is the
+only arm clearing both controls at every depth, and it clears them again on an independent settle
+boot. Bracketing controls are the reason this window can *adopt* anything.
+
+**Method correction (banked, re-reads past windows):** the packed/engram prefix cache survives an
+engine restart, so later arms in a multi-boot window inherit warm prefixes and arm order leaks into
+the numbers (the 2026-09-14 γ-window settle arm: 18.5 tok/s against a 10.6 control, same window).
+The fair-go probe salts each arm's prefix — `tools/patch-fairgo-probe.py` (`--salt`). Earlier
+verdicts are conservative in the direction that matters: the winners there ran warmest.
+
+**Hypothesis closed at source, no boot spent:** `speculative_accept_threshold_single/_acc` are
+consumed only by the dflash/eagle paths (`dflash_utils.py:916`, `eagle_utils.py:907`) — DSPARK has
+no engine-provided adaptive-depth knob to arm.
+
+**Final state:** settle boot asserted `gamma=2, verify_num_draft_tokens=3`; health 200; watchdog
+healthy, 0 failures, not latched; latch dropped; env md5 `6add2ff5529e0d39b4e0bd7311e3a840`
+(value-identical to `env.tp4.as-deployed-20260914`; pre-window `94a97d96738e8b1e0a4d4093c59010fa`).

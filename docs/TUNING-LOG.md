@@ -13,9 +13,15 @@ Upstream ships `DSPARK_BLOCK_SIZE=5` (γ=5 ⇒ verify window γ+1=6).
 | 4 | 34.1/37.1/37.4 / 50.0/55.7/56.4 / 68.3/74.3/71.9 | ~2 (synthetic prompts) | +7% conc1, +7% conc2, +3% conc4 vs stock-warm |
 | **3** | **34.8/37.8 / 59.5/61.4 / 79.4/78.8** | **3.0–3.5** | **production** |
 
-Stop rule (banked so nobody re-sweeps): when accept length approaches the window, the window
-is fully used. At γ=3 accept is 3.0–3.5 of 4 — **γ=2 would clip real accepts**. Sweep closed.
-Verify the gamma in the **boot log** (`gamma=3, verify_num_draft_tokens=4`), never the env line
+**Stop rule — CORRECTED 2026-09-14 (v1.1.6).** The v1.1.0 rule above ("at γ=3 accept is 3.0–3.5
+of 4 — γ=2 would clip real accepts") was measured on **short synthetic prompts** and does not
+transfer to the fleet's real depth. Live agent traffic at ~123k context reports accept length
+**2.20–2.55** with accept rate 0.40–0.52 — the third drafted position is mostly discarded, so the
+"window is fully used" test was reading the wrong regime, and γ=2 was re-opened. Measured on a
+fleet-realistic harness it **wins**: +6–12% vs a same-day γ=3 control, positive at 8k/32k/96k,
+gate clean (`EVIDENCE.md` §13, `WINDOW-FAIRGO.md`). **γ=2 is now production** (verify window 3);
+γ=3 is the first rollback. Banked rule: sweep γ against the *fleet's* depth mix, not short prompts.
+Verify the gamma in the **boot log** (`gamma=2, verify_num_draft_tokens=3`), never the env line
 alone. Benign boot-log caveat you will see: `DSpark gamma mismatch: using gamma=N (from
 speculative_num_draft_tokens=…) but draft config block_size=…` — the resolved value in the
 same log is what counts.

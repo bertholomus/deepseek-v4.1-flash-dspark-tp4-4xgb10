@@ -1,9 +1,9 @@
-# DSV41-Flash TP4 Spark Recipe — v1.1.5 (gamma-3 + durable fixes)
+# DSV41-Flash TP4 Spark Recipe — v1.1.6 (gamma-2 + durable fixes)
 
 **BertholomusAI in-house deployment recipe for DeepSeek-V4.1-Flash on 4× NVIDIA DGX Spark (GB10), tensor-parallel 4, served by SGLang.**
 
 This is *our* formula: the upstream launcher repo plus our measured, evidence-gated
-deviations. Everything here was verified on live hardware (spark1..spark4) on 2026-09-11/13.
+deviations. Everything here was verified on live hardware (spark1..spark4) on 2026-09-11/14.
 
 **Ownership.** The **BertholomusAI in-house recipe**, maintained as a first-class versioned
 artifact rather than a fork: the upstream-facing *code* changes are the four `patches/000NN-*.diff`
@@ -17,7 +17,7 @@ AGPL-3.0-or-later launcher repo (§ Licensing in `NOTICE.md`).
 
 | | |
 |---|---|
-| **Recipe version** | **v1.1.5** (codename *gamma-3* + durable fixes) |
+| **Recipe version** | **v1.1.6** (codename *gamma-2* + durable fixes) |
 | **Target** | 4× DGX Spark (GB10, SM121), 2-rail CX7 fabric, TP4 |
 | **Serving stack** | SGLang `dev-dsv41` (image tag `dsv41-4x-spark:local`) |
 | **Model** | DeepSeek-V4.1-Flash (checkpoint `dba1be0a`, MIT), 48 shards, /models/DeepSeek-V4.1-Flash |
@@ -37,7 +37,7 @@ temp 0, warm lane) — nothing here is a guess. Full numbers: `docs/EVIDENCE.md`
 
 | # | Change | Upstream | Ours | Effect |
 |---|---|---|---|---|
-| 1 | `DSPARK_BLOCK_SIZE` (γ, speculative verify window = γ+1) | `5` | **`3`** | +7–10% @conc2/4 vs γ-4; conc1 flat. Sweep 5→4→3. |
+| 1 | `DSPARK_BLOCK_SIZE` (γ, speculative verify window = γ+1) | `5` | **`2`** | +6–12% vs γ-3 at the fleet's real depth (8k/32k/96k, 2026-09-14 fair-go window). Supersedes the v1.1.0 short-prompt sweep (5→4→3, whose "γ=2 would clip accepts" stop rule did not hold at 104k+ context). |
 | 2 | `MAX_TOTAL_TOKENS` (KV pool) | `750000` | **`8000000`** | 1M-context × ~8 concurrent sessions; raised 4M→8M 2026-09-13, measured speed-neutral |
 | 3 | `EP_SIZE` | `4` | **`2`** | fitted to per-node memory headroom |
 | 4 | `DSV41_CACHE_GIB` (engram NVMe KV cache) | `0` | **`4`** | 12 GiB **rejected** — head host-RAM exhaustion ~90 s into weight load |
@@ -87,7 +87,7 @@ Capability, from the same two documents:
 |---|---|---|---|
 | Context **configured** | 200k–256k (model max 1M) | **1,048,576** | **4.1–5.2×** |
 | KV pool | 750,000 tok | **8,000,000 tok** (FP8) | **10.67×** |
-| Speculative verify window | 6 tokens (γ=5) | **4 tokens (γ=3)** | narrower, measured faster |
+| Speculative verify window | 6 tokens (γ=5) | **3 tokens (γ=2)** | narrower, measured faster at fleet depth |
 | Free memory while serving | ~6 GB on the head | **29–32 GB/rank** | — |
 
 Read this honestly: it is *their published table* versus *our live lane mid-production*, not a

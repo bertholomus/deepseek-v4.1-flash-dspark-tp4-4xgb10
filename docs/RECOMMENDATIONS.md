@@ -1,5 +1,22 @@
 # RECOMMENDATIONS — what would actually make this better
 
+**STATUS UPDATE 2026-09-14 (v1.1.6 fair-go window):**
+- **γ was NOT spent — re-opened at fleet depth and γ=2 ADOPTED.** +6–12% vs a same-day γ=3 control,
+  positive at 8k/32k/96k, gate clean (`docs/EVIDENCE.md` §13, `docs/WINDOW-FAIRGO.md`). The v1.1.0
+  γ=3 keep rested on a short-prompt accept reading (3.0–3.5) that does not hold at 104k+, where the
+  live lane accepts only 2.20–2.55 of the drafted window.
+- **`--schedule-policy lpm` is CLOSED (null).** Within noise of the same-day control (+2.4/−1.9/+0.8%
+  per depth); its apparent +17% was window drift. This build's default is `fcfs`, not `lpm`.
+- **`SGLANG_DSPARK_OPT_FUSED_GREEDY_MARKOV=1` is CLOSED (negative)** — W −15.2%. Stays off.
+- **No engine-side adaptive-depth knob exists for DSPARK** (`speculative_accept_threshold_*` are
+  dflash/eagle-only), so the remaining verify-budget work is upstream-only.
+- **Method rule added:** the packed/engram prefix cache survives restarts — multi-boot windows must
+  salt per-arm prefixes and bracket controls with a pre-registered drift flag
+  (`tools/patch-fairgo-probe.py`).
+- **The residual gap is upstream** (`docs/upstream-issues/`): the SPS profiler simulate/capture
+  conflict (blocks compact/SPS verify-budget pricing on multi-node TP4) and the cap-accept
+  confidence-head capture width. Rights-safe drafts, ready to file on the owner's word.
+
 **STATUS UPDATE 2026-09-13 (v1.1.5 audit window):**
 - **The acceptance/verify-window lever is CLOSED (negative).** §5 item 2 below was written
   before the measurement landed: the uncapped accept ceiling (~2.66) sits *below* production's

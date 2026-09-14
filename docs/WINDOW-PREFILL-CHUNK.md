@@ -1,8 +1,19 @@
 # WINDOW — prefill chunk sizing (the remaining configuration lever)
 
-**Status: STAGED, NOT RUN.** This is the one candidate left that is (a) reachable by
+**Status: RUN 2026-09-14, NULL RESULT — reverted to 4096.** Chunk 8192 was −4.7% on cold-turn
+TTFT vs control, while a control-vs-control repeat boot of the *same* config moved +3.2% —
+the arm difference sits inside boot-to-boot variance. Prefill is compute/bandwidth-bound at
+this size, not chunk-step-count-bound: the cold-prefill tax is a **hard floor for this
+engine**, and the honest fix for long first turns is harness-side (smaller first turn, warm
+prefix), not a recipe fix. Evidence: `~/dsv41-state/window-20260914T041318Z/` on spark1
+(A 77.0 s mean TTFT / B(8192) 80.6 s / A3 repeat 79.5 s on ~50k–100k-token cold prompts;
+lane reverted, `.env.tp4` md5 identical to pre-window, health 200, gate clean, latch dropped).
+
+--- Original window design, kept for the record ---
+
+This was the one candidate left that is (a) reachable by
 configuration, (b) aimed at an already-measured cost, and (c) reversible in one file copy.
-It needs a ~20–30 minute maintenance window and the owner's go-ahead, because it restarts the
+It needed a ~20–30 minute maintenance window and the owner's go-ahead, because it restarts the
 lane the whole fleet is served from.
 
 ## Why this and nothing else
