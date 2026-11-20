@@ -1,5 +1,7 @@
 # DSV41-Flash TP4 Spark Recipe — v1.1.6 (gamma-2 + durable fixes)
 
+> **Archived.** This SGLang + DSpark TP4 recipe is superseded by [bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10](https://github.com/bertholomus/deepseek-v4.1-tensorfold-tp4-4xgb10). This repository is read-only.
+
 **BertholomusAI in-house deployment recipe for DeepSeek-V4.1-Flash on 4× NVIDIA DGX Spark (GB10), tensor-parallel 4, served by SGLang.**
 
 This is *our* formula: the upstream launcher repo plus our measured, evidence-gated
